@@ -407,23 +407,47 @@ export async function skip(memberId: number): Promise<ActionResult> {
 
 // ---------- Notifications (ntfy.sh) ----------
 export let lastNtfyError = "";
+/** One delivery attempt. Returns {ok, status, text}. Uses the Google Apps Script relay if NTFY_RELAY_URL is set. */
+async function ntfyPostOnce(body: any): Promise<{ ok: boolean; status: number; text: string }> {
+  const relayUrl = (process.env.NTFY_RELAY_URL || "").trim();
+  if (relayUrl) {
+    const secret = (process.env.NTFY_RELAY_SECRET || "").trim();
+    // text/plain avoids a CORS preflight-style rejection; Apps Script answers via a 302 redirect, which fetch follows
+    const res = await fetch(relayUrl, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ secret, message: body }),
+      redirect: "follow",
+      signal: AbortSignal.timeout(30000),
+    });
+    const raw = await res.text().catch(() => "");
+    let j: any = null;
+    try { j = JSON.parse(raw); } catch { /* not JSON */ }
+    if (!j) return { ok: false, status: res.status || 502, text: "relay: " + raw.slice(0, 150) };
+    return { ok: !!j.ok, status: Number(j.status) || (j.ok ? 200 : 502), text: "relay: " + String(j.error || j.body || "").slice(0, 150) };
+  }
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const ntfyToken = (process.env.NTFY_TOKEN || "").replace(/\s+/g, "");
+  if (ntfyToken) headers.Authorization = `Bearer ${ntfyToken}`;
+  const res = await fetch("https://ntfy.sh/", { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(10000) });
+  return { ok: res.ok, status: res.status, text: res.ok ? "" : (await res.text().catch(() => "")).slice(0, 150) };
+}
+
 async function sendNtfy(m: Member, title: string, message: string, actions: any[]): Promise<boolean> {
   const s = await getSettings();
   const body: any = { topic: m.ntfyTopic, title, message, priority: 4, actions };
   if (s.publicUrl) body.click = s.publicUrl;
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (process.env.NTFY_TOKEN) headers.Authorization = `Bearer ${process.env.NTFY_TOKEN}`;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const res = await fetch("https://ntfy.sh/", { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(10000) });
-      if (res.ok) { lastNtfyError = ""; return true; }
-      const txt = (await res.text().catch(() => "")).slice(0, 200);
-      lastNtfyError = `HTTP ${res.status}${process.env.NTFY_TOKEN ? "" : " (nincs NTFY_TOKEN)"}: ${txt}`;
-      console.error(`ntfy error member=${m.id} attempt=${attempt} status=${res.status} token=${process.env.NTFY_TOKEN ? "yes" : "no"} ${txt}`);
-      if (res.status < 500 && res.status !== 429) return false;
+      const r = await ntfyPostOnce(body);
+      if (r.ok) { lastNtfyError = ""; return true; }
+      lastNtfyError = `HTTP ${r.status}: ${r.text}`;
+      console.error(`ntfy error member=${m.id} attempt=${attempt} status=${r.status} relay=${process.env.NTFY_RELAY_URL ? "yes" : "no"} ${r.text}`);
+      if (r.status < 500 && r.status !== 429) return false;
     } catch (e: any) {
-      lastNtfyError = `${e?.name}: ${e?.message}`;
-      console.error(`ntfy error member=${m.id} attempt=${attempt} ${e?.name}: ${e?.message}`);
+      const cause = e?.cause?.code || e?.cause?.message || "";
+      lastNtfyError = `${e?.name}: ${e?.message}${cause ? " (" + cause + ")" : ""}`;
+      console.error(`ntfy error member=${m.id} attempt=${attempt} ${lastNtfyError}`);
     }
     await new Promise((r) => setTimeout(r, attempt * 2000));
   }
