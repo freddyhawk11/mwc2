@@ -408,19 +408,23 @@ export async function skip(memberId: number): Promise<ActionResult> {
 // ---------- Notifications (ntfy.sh) ----------
 async function sendNtfy(m: Member, title: string, message: string, actions: any[]): Promise<boolean> {
   const s = await getSettings();
-  try {
-    const body: any = { topic: m.ntfyTopic, title, message, priority: 4, actions };
-    if (s.publicUrl) body.click = s.publicUrl;
-    const res = await fetch("https://ntfy.sh/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    return res.ok;
-  } catch (e) {
-    console.error("ntfy error", e);
-    return false;
+  const body: any = { topic: m.ntfyTopic, title, message, priority: 4, actions };
+  if (s.publicUrl) body.click = s.publicUrl;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (process.env.NTFY_TOKEN) headers.Authorization = `Bearer ${process.env.NTFY_TOKEN}`;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch("https://ntfy.sh/", { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(10000) });
+      if (res.ok) return true;
+      const txt = (await res.text().catch(() => "")).slice(0, 200);
+      console.error(`ntfy error member=${m.id} attempt=${attempt} status=${res.status} ${txt}`);
+      if (res.status < 500 && res.status !== 429) return false;
+    } catch (e: any) {
+      console.error(`ntfy error member=${m.id} attempt=${attempt} ${e?.name}: ${e?.message}`);
+    }
+    await new Promise((r) => setTimeout(r, attempt * 2000));
   }
+  return false;
 }
 
 async function actionToken(date: string, memberId: number): Promise<string> {
