@@ -20,3 +20,9 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+      - key: NTFY_TOKEN
+        sync: false
+      - key: NTFY_RELAY_URL
+        sync: false
+      - key: NTFY_RELAY_SECRET
+        sync: false
