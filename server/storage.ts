@@ -406,6 +406,7 @@ export async function skip(memberId: number): Promise<ActionResult> {
 }
 
 // ---------- Notifications (ntfy.sh) ----------
+export let lastNtfyError = "";
 async function sendNtfy(m: Member, title: string, message: string, actions: any[]): Promise<boolean> {
   const s = await getSettings();
   const body: any = { topic: m.ntfyTopic, title, message, priority: 4, actions };
@@ -415,11 +416,13 @@ async function sendNtfy(m: Member, title: string, message: string, actions: any[
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const res = await fetch("https://ntfy.sh/", { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(10000) });
-      if (res.ok) return true;
+      if (res.ok) { lastNtfyError = ""; return true; }
       const txt = (await res.text().catch(() => "")).slice(0, 200);
-      console.error(`ntfy error member=${m.id} attempt=${attempt} status=${res.status} ${txt}`);
+      lastNtfyError = `HTTP ${res.status}${process.env.NTFY_TOKEN ? "" : " (nincs NTFY_TOKEN)"}: ${txt}`;
+      console.error(`ntfy error member=${m.id} attempt=${attempt} status=${res.status} token=${process.env.NTFY_TOKEN ? "yes" : "no"} ${txt}`);
       if (res.status < 500 && res.status !== 429) return false;
     } catch (e: any) {
+      lastNtfyError = `${e?.name}: ${e?.message}`;
       console.error(`ntfy error member=${m.id} attempt=${attempt} ${e?.name}: ${e?.message}`);
     }
     await new Promise((r) => setTimeout(r, attempt * 2000));
@@ -433,9 +436,11 @@ async function actionToken(date: string, memberId: number): Promise<string> {
   return token;
 }
 
-async function notifyAssignee(date: string, memberId: number, intro?: string) {
+const lastAttempt = new Map<string, number>();
+async function notifyAssignee(date: string, memberId: number, intro?: string): Promise<boolean> {
   const m = await getMember(memberId);
-  if (!m) return;
+  if (!m) return false;
+  lastAttempt.set(`${date}:${memberId}`, Date.now());
   const s = await getSettings();
   const actions: any[] = [];
   if (s.publicUrl) {
@@ -445,13 +450,15 @@ async function notifyAssignee(date: string, memberId: number, intro?: string) {
     actions.push({ action: "http", label: "Ma nem tudom", url: `${base}/skip`, method: "POST", clear: true });
   }
   const msg = `${intro ? intro + " " : ""}Ma te következel: ${s.taskName}.`;
-  await sendNtfy(m, `Ma te jössz, ${m.name}`, msg, actions);
+  const ok = await sendNtfy(m, `Ma te jössz, ${m.name}`, msg, actions);
+  if (!ok) return false;
   const d = await getDayRow(date);
   if (d) {
     const notified = JSON.parse(d.notified) as number[];
     if (!notified.includes(memberId)) notified.push(memberId);
     await db.run("UPDATE days SET notified=? WHERE date=?", [JSON.stringify(notified), date]);
   }
+  return true;
 }
 
 export async function testNotification(memberId: number): Promise<boolean> {
@@ -477,7 +484,9 @@ export async function tick() {
     const s = await getSettings();
     if (d.status === "pending" && d.assignee_id != null && currentHour() >= s.notifyHour) {
       const notified = JSON.parse(d.notified) as number[];
-      if (!notified.includes(d.assignee_id)) await notifyAssignee(d.date, d.assignee_id);
+      // retry failed sends every 10 minutes until delivered
+      const last = lastAttempt.get(`${d.date}:${d.assignee_id}`) ?? 0;
+      if (!notified.includes(d.assignee_id) && Date.now() - last >= 10 * 60_000) await notifyAssignee(d.date, d.assignee_id);
     }
     // housekeeping: drop old tokens
     await db.run("DELETE FROM action_tokens WHERE date < ?", [addDays(d.date, -3)]);

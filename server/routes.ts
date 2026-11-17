@@ -140,7 +140,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
   app.post("/api/me/test", auth, async (req, res) => {
     const ok = await S.testNotification(req.member!.id);
-    res.json({ ok });
+    res.json({ ok, error: ok ? undefined : S.lastNtfyError });
   });
 
   // ---- data ----
@@ -258,7 +258,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
   app.post("/api/members/:id/test", auth, admin, async (req, res) => {
     const ok = await S.testNotification(Number(req.params.id));
-    res.json({ ok });
+    res.json({ ok, error: ok ? undefined : S.lastNtfyError });
   });
 
   return httpServer;
