@@ -405,7 +405,7 @@ export function SettingsPage({ me }: { me: Member }) {
   const [pw, setPw] = useState("");
   const test = useMutation({
     mutationFn: async () => (await apiRequest("POST", "/api/me/test")).json(),
-    onSuccess: (r) => toast({ title: r.ok ? "Teszt értesítés elküldve." : "Nem sikerült elküldeni." }),
+    onSuccess: (r) => toast({ title: r.ok ? "Teszt értesítés elküldve." : "Nem sikerült elküldeni.", description: r.ok ? undefined : r.error }),
   });
   const changePw = useMutation({
     mutationFn: async () => (await apiRequest("POST", "/api/me/password", { password: pw })).json(),
@@ -496,7 +496,7 @@ function AdminSection({ me }: { me: Member }) {
   });
   const testMember = useMutation({
     mutationFn: async (id: number) => (await apiRequest("POST", `/api/members/${id}/test`)).json(),
-    onSuccess: (r) => toast({ title: r.ok ? "Teszt értesítés elküldve." : "Nem sikerült." }),
+    onSuccess: (r) => toast({ title: r.ok ? "Teszt értesítés elküldve." : "Nem sikerült.", description: r.ok ? undefined : r.error }),
   });
 
   if (!settings.data) return <Skeleton className="h-64 w-full rounded-2xl" />;
