@@ -1,6 +1,6 @@
 # Ki jön ma? – telepítés Render + Turso alapon
 
-Az alkalmazás a Renderen fut (ingyenes web service), az adatokat a Turso felhős adatbázisa tárolja, így semmi nem vész el, ha a Render újraindítja vagy elaltatja a szolgáltatást. Egy ingyenes időzítő (cron-job.org) 10 percenként felkelti, így a 17:00-s értesítés mindig pontosan kimegy.
+Az alkalmazás a Renderen fut (ingyenes web service), az adatokat a Turso felhős adatbázisa tárolja, így semmi nem vész el, ha a Render újraindítja vagy elaltatja a szolgáltatást. Egy ingyenes időzítő (cron-job.org) 10 percenként felkelti, így a beállított időpontban (alapból 17:00) az értesítés mindig pontosan kimegy.
 
 Szükséges: egy GitHub-fiók, amelyben ott van ez a kód (privát tároló is jó).
 
@@ -38,6 +38,20 @@ A Render ingyenes szolgáltatása 15 perc forgalom nélkül elalszik. Hogy az é
 3. Gyakoriság: **10 percenként**. Mentés.
 
 A havi 750 ingyenes Render-óra egy folyamatosan ébren tartott szolgáltatásra pont elég.
+
+## 5. Értesítések: ntfy + Google Apps Script közvetítő
+
+Az ntfy.sh időnként kitiltja a Render közös kimenő IP-címeit, ezért a szerver nem közvetlenül, hanem egy Google Apps Script közvetítőn keresztül küld.
+
+1. ntfy fiók (Supporter csomag): https://ntfy.sh/app → Account → Access tokens → token létrehozása (`tk_...`).
+2. https://script.google.com (saját Gmail fiókkal) → Új projekt → az `apps-script/Code.gs` tartalmának bemásolása.
+3. Projektbeállítások → Szkripttulajdonságok: `RELAY_SECRET` (hosszú véletlen szöveg) és `NTFY_TOKEN` (`tk_...`).
+4. A `tesztKuldes` függvény futtatása (engedélyezés), a naplóban `200` kell legyen.
+5. Telepítés → Új telepítés → Webalkalmazás; Végrehajtás mint: Én; Hozzáférés: Bárki. A `/exec` végű URL kimásolása.
+6. Render → Environment: `NTFY_RELAY_URL` = a `/exec` URL, `NTFY_RELAY_SECRET` = a `RELAY_SECRET` értéke.
+7. Tesztelés a Beállítások → Teszt értesítés küldése gombbal. Hiba esetén a kiírt szöveg mutatja az okot.
+
+Ha az `NTFY_RELAY_URL` nincs megadva, a szerver közvetlenül az ntfy.sh-nak küld (`NTFY_TOKEN`-nel, ha meg van adva). A script módosítása után a Telepítések kezelése menüben új verziót kell kiadni.
 
 ## Tudnivalók
 

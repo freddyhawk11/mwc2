@@ -418,7 +418,7 @@ async function ntfyPostOnce(body: any): Promise<{ ok: boolean; status: number; t
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({ secret, message: body }),
       redirect: "follow",
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(60000),
     });
     const raw = await res.text().catch(() => "");
     let j: any = null;
@@ -445,6 +445,13 @@ async function sendNtfy(m: Member, title: string, message: string, actions: any[
       console.error(`ntfy error member=${m.id} attempt=${attempt} status=${r.status} relay=${process.env.NTFY_RELAY_URL ? "yes" : "no"} ${r.text}`);
       if (r.status < 500 && r.status !== 429) return false;
     } catch (e: any) {
+      // The Apps Script relay can be slow (cold start). After a timeout the message was most likely
+      // delivered anyway, so do not resend it (that would cause duplicate notifications).
+      if (process.env.NTFY_RELAY_URL && e?.name === "TimeoutError") {
+        console.warn(`ntfy relay timeout member=${m.id}, assuming delivered`);
+        lastNtfyError = "";
+        return true;
+      }
       const cause = e?.cause?.code || e?.cause?.message || "";
       lastNtfyError = `${e?.name}: ${e?.message}${cause ? " (" + cause + ")" : ""}`;
       console.error(`ntfy error member=${m.id} attempt=${attempt} ${lastNtfyError}`);
